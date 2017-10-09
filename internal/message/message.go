@@ -20,10 +20,10 @@ const (
 
 // Message is the structure for the message we are getting
 type Message struct {
-	Header     [7]byte // It is being calculated if it is a concatenated message.
-	Body       string  `json:"body"`
-	Originator string  `json:"originator"` // Be careful that limit of the name is 11.
-	Recipient  int     `json:"recipient"`  // This is a phone number
+	Header     string // It is being calculated if it is a concatenated message.
+	Body       string `json:"body"`
+	Originator string `json:"originator"` // Be careful that limit of the name is 11.
+	Recipient  int    `json:"recipient"`  // This is a phone number
 }
 
 // Validate make sure no empty or incorrect parameter values are send to MessageBird.
@@ -65,6 +65,7 @@ func (message *Message) Process() ([]Message, error) {
 
 		limitWithoutUDH := limitCharacters - 7
 		referenceNumber := rand.Int()
+		numberSegments := len(message.Body) / limitWithoutUDH
 		// Split into limitCharacters - 7 characters.
 		for i := 0; i < len(message.Body); i = i + limitWithoutUDH {
 			if i+limitCharacters < len(message.Body) {
@@ -73,21 +74,14 @@ func (message *Message) Process() ([]Message, error) {
 				m = string(message.Body[i:])
 			}
 
-			// UDH header
-			var udh [7]byte
+			// UDH header ej. "udh":"050003340201"
 			// doesn't include itself, its header length
-			udh[0] = 0x05
-			// SAR identifier
-			udh[1] = 0x00
-			// SAR length
-			udh[2] = 0x03
+			// SAR identifier 00
+			// SAR length 03
 			// create reference number (same for all messages)
-			udh[3] = byte(referenceNumber)
 			// total number of segments
-			udh[4] = byte(len(message.Body) / limitWithoutUDH)
 			// segment number
-			udh[5] = byte(i + limitWithoutUDH)
-
+			udh := fmt.Sprintf("050003%s%s%s", strconv.Itoa(referenceNumber), strconv.Itoa(numberSegments), strconv.Itoa(i+limitWithoutUDH))
 			ms = append(ms, Message{Body: m, Recipient: message.Recipient, Originator: message.Originator, Header: udh})
 		}
 	} else {
@@ -140,17 +134,14 @@ func (message *Message) Send() error {
 			// Rate of sending messages
 			time.Sleep(1000 * time.Millisecond)
 
-			fmt.Printf("DEBUG %v", m.Header)
-			// typedetails := make(map[string]interface{})
-
-			// if len(m.Header) > 1 {
-			// 	typedetails["uhf"] = m.Header
-			// }
+			params := &messagebird.MessageParams{Reference: "GO Developer Test"}
 
 			// Adds the UDH
-			params := &messagebird.MessageParams{
-				Reference: "GO Developer Test"}
-			//				TypeDetails: typedetails}
+			if len(m.Header) > 1 {
+				typedetails := make(map[string]interface{})
+				typedetails["udh"] = m.Header
+				params = &messagebird.MessageParams{Reference: "GO Developer Test", TypeDetails: typedetails}
+			}
 
 			// Sending the message
 			message, err := mbClient.NewMessage(m.Originator, []string{strconv.Itoa(m.Recipient)}, m.Body, params)
